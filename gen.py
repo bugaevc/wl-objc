@@ -105,7 +105,7 @@ class Interface:
         return r
     def gen_connect_to_fd(self):
         r = Request()
-        r.name = 'connect'
+        r.name = 'connect_to_fd'
         r.static = True
         r.description = None
         r.interface = self
@@ -235,10 +235,18 @@ class Request:
     def print_impl(self):
         self.print_header()
         print(' {')
-        this = Arg()
-        this.name = 'rawHandle'
-        this.type = 'id'
-        args = ', '.join(arg.to_c() for arg in [this] + self.objc_args)
+        args = self.objc_args
+        if not self.static:
+            this = Arg()
+            this.name = 'rawHandle'
+            this.type = 'id'
+            args = [this] + args
+        elif self.objc_name == 'connect':
+            addr = Arg()
+            addr.name = 'NULL'
+            addr.type = 'string'
+            args = [addr]
+        args = ', '.join(arg.to_c() for arg in args)
         if self.new_id is not None:
             return_type = Interface.objc_name(self.new_id.interface)
             print('{t} *res = [{t} alloc];'.format(t=return_type))
