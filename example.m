@@ -9,9 +9,9 @@ int main() {
     WLDisplay *display = [WLDisplay connect];
     WLRegistry *registry = [display registry];
 
-    WLCompositor *compositor;
-    WLShm *shm;
-    WLShell *shell;
+    __block WLCompositor *compositor;
+    __block WLShm *shm;
+    __block WLShell *shell;
 
     [registry setGlobalHandler:
         ^(uint32_t name, NSString *interface, uint32_t version) {
