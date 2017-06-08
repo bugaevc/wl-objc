@@ -57,8 +57,69 @@ class Interface:
             if child.tag == 'event':
                 event = Event.parse(child, interface=res)
                 res.events.append(event)
+        if res.name == 'wl_display':
+            res.requests += [
+                Interface.gen_connect(),
+                Interface.gen_connect_with_name(),
+                Interface.gen_connect_to_fd(),
+                Interface.gen_disconnect(),
+            ]
         return res
 
+    def gen_connect():
+        r = Request()
+        r.name = 'connect'
+        r.static = True
+        r.description = None
+        r.objc_name = 'connect'
+        r.args = []
+        r.objc_args = []
+        r.new_id = Arg()
+        r.new_id.type = 'interface'
+        r.new_id.interface = 'wl_display'
+        return r
+    def gen_connect_with_name():
+        r = Request()
+        r.name = 'connect'
+        r.static = True
+        r.description = None
+        r.objc_name = 'connectWithName'
+        r.args = [Arg()]
+        r.objc_args = [Arg()]
+        r.args[0].name = 'name'
+        r.args[0].type = 'string'
+        r.objc_args[0].name = 'name'
+        r.objc_args[0].type = 'NSString *'
+        r.new_id = Arg()
+        r.new_id.type = 'interface'
+        r.new_id.interface = 'wl_display'
+        return r
+    def gen_connect_to_fd():
+        r = Request()
+        r.name = 'connect'
+        r.static = True
+        r.description = None
+        r.objc_name = 'connectToFd'
+        r.args = [Arg()]
+        r.objc_args = [Arg()]
+        r.args[0].name = 'fd'
+        r.args[0].type = 'fd'
+        r.objc_args[0].name = 'fd'
+        r.objc_args[0].type = 'int'
+        r.new_id = Arg()
+        r.new_id.type = 'interface'
+        r.new_id.interface = 'wl_display'
+        return r
+    def gen_disconnect():
+        r = Request()
+        r.name = 'disconnect'
+        r.static = False
+        r.description = None
+        r.objc_name = 'disconnect'
+        r.args = []
+        r.objc_args = []
+        r.new_id = None
+        return r
 
     def objc_name(name):
         if isinstance(name, Interface):
@@ -87,6 +148,7 @@ class Request:
         assert(node.tag == 'request')
         res = Request()
         res.name = node.attrib['name']
+        res.static = False
         res.args = []
         for child in node:
             if child.tag == 'description':
@@ -108,18 +170,7 @@ class Request:
             res.args = res.args[1:]
         else:
             res.new_id = None
-        res.objc_args = deepcopy(res.args)
-        for arg in res.objc_args:
-            arg.name = objc_case(arg.name)
-            if arg.type == 'object':
-                arg.type = Interface.objc_name(arg.interface) + ' *'
-            elif arg.type == 'string':
-                arg.type = 'NSString *'
-            elif arg.type == 'uint':
-                arg.type = 'uint32_t'
-            else:
-                # TODO: other types
-                pass
+        res.objc_args = [arg.objcify() for arg in res.args]
         if res.args:
             a0n = objc_case(res.args[0].name, first_capital=True)
             if not res.objc_name.endswith(a0n):
@@ -132,7 +183,7 @@ class Request:
         return_type = 'void'
         if self.new_id is not None:
             return_type = Interface.objc_name(self.new_id.interface) + ' *'
-        print('- ({})'.format(return_type), end='')
+        print('{} ({})'.format('+' if self.static else '-', return_type), end='')
         if not self.objc_args:
             print(' {};'.format(self.objc_name))
         else:
@@ -162,7 +213,7 @@ class Event:
         if self.description:
             print_comment(self.description, multiline=True)
         name = objc_case('set_{}_handler'.format(self.name))
-        args_decl = ', '.join(arg.cdecl() for arg in self.args)
+        args_decl = ', '.join(arg.objcify().cdecl() for arg in self.args)
         print('- (void) {}: (void (^)({})) handler;'.format(name, args_decl))
 
 class Arg:
@@ -177,6 +228,24 @@ class Arg:
             res.allow_null = False
         if 'allow-null' in node.attrib:
             res.allow_null = node.attrib['allow-null'] == 'true'
+        return res
+
+    def objcify(self):
+        res = Arg()
+        res.name = objc_case(self.name)
+        res.summary = self.summary
+        if self.type == 'object':
+            if hasattr(self, 'interface'):
+                res.type = Interface.objc_name(self.interface) + ' *'
+            else:
+                res.type = 'id'
+        elif self.type == 'string':
+            res.type = 'NSString *'
+        elif self.type == 'uint':
+            res.type = 'uint32_t'
+        else:
+            # TODO: other types
+            res.type = self.type
         return res
 
     def print_decl(self, label=None):
