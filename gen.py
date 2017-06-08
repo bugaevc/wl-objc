@@ -1,5 +1,6 @@
 #! /usr/bin/python3
 
+import sys
 import xml.etree.ElementTree as ET
 from copy import deepcopy
 
@@ -40,11 +41,17 @@ class Protocol:
             interface.print_decl()
             print()
 
+    def print_impl(self):
+        for interface in self.interfaces:
+            interface.print_impl()
+            print()
+
 class Interface:
     def parse(node, protocol):
         assert(node.tag == 'interface')
         res = Interface()
         res.name = node.attrib['name']
+        res.protocol = protocol
         res.version = node.attrib['version']
         res.requests = []
         res.events = []
@@ -59,18 +66,19 @@ class Interface:
                 res.events.append(event)
         if res.name == 'wl_display':
             res.requests += [
-                Interface.gen_connect(),
-                Interface.gen_connect_with_name(),
-                Interface.gen_connect_to_fd(),
-                Interface.gen_disconnect(),
+                res.gen_connect(),
+                res.gen_connect_with_name(),
+                res.gen_connect_to_fd(),
+                res.gen_disconnect(),
             ]
         return res
 
-    def gen_connect():
+    def gen_connect(self):
         r = Request()
         r.name = 'connect'
         r.static = True
         r.description = None
+        r.interface = self
         r.objc_name = 'connect'
         r.args = []
         r.objc_args = []
@@ -78,11 +86,12 @@ class Interface:
         r.new_id.type = 'interface'
         r.new_id.interface = 'wl_display'
         return r
-    def gen_connect_with_name():
+    def gen_connect_with_name(self):
         r = Request()
         r.name = 'connect'
         r.static = True
         r.description = None
+        r.interface = self
         r.objc_name = 'connectWithName'
         r.args = [Arg()]
         r.objc_args = [Arg()]
@@ -94,11 +103,12 @@ class Interface:
         r.new_id.type = 'interface'
         r.new_id.interface = 'wl_display'
         return r
-    def gen_connect_to_fd():
+    def gen_connect_to_fd(self):
         r = Request()
         r.name = 'connect'
         r.static = True
         r.description = None
+        r.interface = self
         r.objc_name = 'connectToFd'
         r.args = [Arg()]
         r.objc_args = [Arg()]
@@ -110,11 +120,12 @@ class Interface:
         r.new_id.type = 'interface'
         r.new_id.interface = 'wl_display'
         return r
-    def gen_disconnect():
+    def gen_disconnect(self):
         r = Request()
         r.name = 'disconnect'
         r.static = False
         r.description = None
+        r.interface = self
         r.objc_name = 'disconnect'
         r.args = []
         r.objc_args = []
@@ -143,11 +154,20 @@ class Interface:
             event.print_decl()
         print('@end')
 
+    def print_impl(self):
+        print('@implementation', self.objc_name())
+        for request in self.requests:
+            request.print_impl()
+        for event in self.events:
+            event.print_impl()
+        print('@end')
+
 class Request:
     def parse(node, interface):
         assert(node.tag == 'request')
         res = Request()
         res.name = node.attrib['name']
+        res.interface = interface
         res.static = False
         res.args = []
         for child in node:
@@ -177,22 +197,41 @@ class Request:
                 res.objc_name += 'With' + a0n
         return res
 
-    def print_decl(self):
-        if self.description:
-            print_comment(self.description, multiline=True)
+    def print_header(self):
         return_type = 'void'
         if self.new_id is not None:
             return_type = Interface.objc_name(self.new_id.interface) + ' *'
         print('{} ({})'.format('+' if self.static else '-', return_type), end='')
         if not self.objc_args:
-            print(' {};'.format(self.objc_name))
+            print(' ' + self.objc_name, end='')
         else:
             print(end=' ')
             self.objc_args[0].print_decl(label=self.objc_name)
             for arg in self.objc_args[1:]:
                 print(end=' ')
                 arg.print_decl()
-            print(';')
+
+    def print_decl(self):
+        if self.description:
+            print_comment(self.description, multiline=True)
+        self.print_header()
+        print(';')
+
+    def print_impl(self):
+        self.print_header()
+        print(' {')
+        this = Arg()
+        this.name = 'rawHandle'
+        this.type = 'id'
+        args = ', '.join(arg.to_c() for arg in [this] + self.objc_args)
+        if self.new_id is not None:
+            return_type = Interface.objc_name(self.new_id.interface)
+            print('{t} *res = [{t} alloc];'.format(t=return_type))
+            print('res->rawHandle = ', end='')
+        print('{}_{}({});'.format(self.interface.name, self.name, args))
+        if self.new_id is not None:
+            print('return res;')
+        print('}')
 
 
 class Event:
@@ -200,6 +239,7 @@ class Event:
         assert(node.tag == 'event')
         res = Event()
         res.name = node.attrib['name']
+        res.interface = interface
         res.args = []
         for child in node:
             if child.tag == 'description':
@@ -209,12 +249,22 @@ class Event:
                 res.args.append(arg)
         return res
 
+    def print_header(self):
+        name = objc_case('set_{}_handler'.format(self.name))
+        args_decl = ', '.join(arg.objcify().cdecl() for arg in self.args)
+        print('- (void) {}: (void (^)({})) handler'.format(name, args_decl), end='')
+
     def print_decl(self):
         if self.description:
             print_comment(self.description, multiline=True)
-        name = objc_case('set_{}_handler'.format(self.name))
-        args_decl = ', '.join(arg.objcify().cdecl() for arg in self.args)
-        print('- (void) {}: (void (^)({})) handler;'.format(name, args_decl))
+        self.print_header()
+        print(';')
+
+    def print_impl(self):
+        self.print_header()
+        print(' {')
+        # TODO: body
+        print('}')
 
 class Arg:
     def parse(node):
@@ -243,6 +293,8 @@ class Arg:
             res.type = 'NSString *'
         elif self.type == 'uint':
             res.type = 'uint32_t'
+        elif self.type == 'fd':
+            res.type = 'int'
         else:
             # TODO: other types
             res.type = self.type
@@ -256,8 +308,32 @@ class Arg:
     def cdecl(self):
         return '{} {}'.format(self.type, self.name)
 
+    def to_c(self):
+        if self.type == 'NSString *':
+            return '[{} UTF8String]'.format(self.name)
+        elif self.type.endswith('*'):
+            return self.name + '->rawHandle'
+        else:
+            return self.name
+
 
 print_comment('Automatically generated by wl-objc bindings generator')
 tree = ET.parse('/dev/stdin')
+
 root = tree.getroot()
-Protocol.parse(root).print_decl()
+protocol = Protocol.parse(root)
+
+def usage():
+    print('''Usage:
+    {argv0} header < some_wayland_protocol.xml > some_wayland_protocol.h
+    {argv0} code   < some_wayland_protocol.xml > some_wayland_protocol.c
+    '''.format(argv0=sys.argv[0]), file=sys.stderr)
+
+if len(sys.argv) != 2:
+    usage()
+elif sys.argv[1] == 'header':
+    protocol.print_decl()
+elif sys.argv[1] == 'code':
+    protocol.print_impl()
+else:
+    usage()
