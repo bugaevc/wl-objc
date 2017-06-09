@@ -1,4 +1,4 @@
 # wl-objc
 Objective-C bindings for Wayland
 
-![doge](https://i.imgflip.com/1qlla4.jpg)
+![doge](http://dogr.io/wow/muchuseless/sooop/suchobjective/verywayland.png)
