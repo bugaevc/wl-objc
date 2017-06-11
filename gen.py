@@ -287,7 +287,7 @@ class Event:
     def print_block_handler_decl(self):
         handler = objc_case(self.name) + 'BlockHandler'
         args_decl = ', '.join(arg.objcify().cdecl() for arg in self.args)
-        print('void (^{})({}));'.format(handler, args_decl))
+        print('void (^{})({});'.format(handler, args_decl))
 
     def print_decl(self):
         if self.description:
@@ -364,6 +364,8 @@ class Arg:
             tp = 'const char *'
         elif tp == 'object':
             tp = 'void *'
+        elif tp == 'uint':
+            tp = 'uint32_t'
         return '{} {}'.format(tp, self.name)
 
     def to_c(self):
